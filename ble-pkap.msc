@@ -1,0 +1,66 @@
+msc {
+    hscale="1.5";
+
+    C [label="Central (gateway)"], P [label="Peripheral (badge)"];
+    
+    |||;
+    --- [label=" BLE-PKAP Mutual Authentication "];
+    |||;
+
+    C box C [label="generate LESC pairing public key PKa"], P box P [label="generate LESC pairing public key PKb"];
+    C box C [label="generate LESC OOB random value Ra"];
+    C box C [label="compute confirm hash Ca"];
+    C box C [label="compute signature SIGcentral(Ca)", textcolor=navy, linecolor=navy]; 
+
+    |||;
+    --- [label=" Establish BLE Connection "];
+    |||;
+    
+    C => P [label="Write-Request(PKAPAuthData): Ra, SIGcentral(Ca)", textcolor=navy, linecolor=navy];
+    P box P [label="store Ra, SIGcentral(Ca) for later use", textcolor=navy, linecolor=navy];
+    P => C [label="Write-Response", textcolor=navy, linecolor=navy];
+
+    |||;
+    --- [label=" Begin LESC OOB Pairing "];
+    |||;
+
+    C => P [label="Pairing-Request"];
+    P => C [label="Pairing-Response"];
+
+    C => P [label="Pairing-Public-Key: PKa"];
+    P => C [label="Pairing-Public-Key: PKb"];
+
+    P box P [label="compute confirm hash Ca", textcolor=navy, linecolor=navy];    
+    P box P [label="verify SIGcentral(Ca)", textcolor=navy, linecolor=navy];
+    P box P [label="verify Ca"];
+    
+    C => P [label="Pairing-Random: Na"];
+    P => C [label="Pairing-Random: Nb"];
+
+    C box C [label="Compute DHKey Check Ea"], P box P [label="Compute DHKey Check Eb"];    
+
+    C => P [label="Pairing-DHKey-Check: Ea"];
+    
+    P box P [label="Verify DHKey Check Ea"];    
+    
+    P => C [label="Pairing-DHKey-Check: Eb"];
+
+    C box C [label="Verify-DHKey-Check Eb"];    
+
+    |||;
+    --- [label=" LESC Secure Connection Established "];
+    |||;
+
+    C => P [label="Read-Request(PKAPAuthData)", textcolor=navy, linecolor=navy];
+    P box P [label="compute signature SIGperiph(Ca)", textcolor=navy, linecolor=navy]; 
+    P => C [label="Read-Resp: SIGperiph(Ca)", textcolor=navy, linecolor=navy];
+
+    |||;   
+
+    C box C [label="verify SIGperiph(Ca)", textcolor=navy, linecolor=navy];
+    
+    |||;   
+    --- [label=" Mutual Authentication Complete "];
+    ...;
+    
+}

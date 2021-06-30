@@ -1,0 +1,46 @@
+From fdba0a0704f1921334dca57e72e3faab0708326d Mon Sep 17 00:00:00 2001
+From: Seigo Okumura <three.28@gmail.com>
+Date: Fri, 1 Nov 2019 23:29:34 +0900
+Subject: [PATCH] added fctvprintf() - vprintf with output function
+
+---
+ printf.c |  6 ++++++
+ printf.h | 11 +++++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/printf.c b/printf.c
+index 8a700ad..3dd36da 100644
+--- a/printf.c
++++ b/printf.c
+@@ -912,3 +912,9 @@ int fctprintf(void (*out)(char character, void* arg), void* arg, const char* for
+   va_end(va);
+   return ret;
+ }
++
++
++int fctvprintf(void (*out)(char character, void* arg), void* arg, const char* format, va_list va) {
++	const out_fct_wrap_type out_fct_wrap = { out, arg };
++	return _vsnprintf(_out_fct, (char*)(uintptr_t)&out_fct_wrap, (size_t)-1, format, va);
++}
+diff --git a/printf.h b/printf.h
+index 6104ccf..7481e64 100644
+--- a/printf.h
++++ b/printf.h
+@@ -109,6 +109,17 @@ int vprintf_(const char* format, va_list va);
+ int fctprintf(void (*out)(char character, void* arg), void* arg, const char* format, ...);
+ 
+ 
++/**
++ * vprintf with output function
++ * You may use this as dynamic alternative to vprintf() with its fixed _putchar() output
++ * \param out An output function which takes one character and an argument pointer
++ * \param arg An argument pointer for user data passed to output function
++ * \param va A value identifying a variable arguments list
++ * \return The number of characters that are sent to the output function, not counting the terminating null character
++ */
++int fctvprintf(void (*out)(char character, void* arg), void* arg, const char* format, va_list va);
++
++
+ #ifdef __cplusplus
+ }
+ #endif
