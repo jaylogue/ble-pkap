@@ -209,6 +209,3 @@ LDFLAGS = \
 LINKER_SCRIPT = $(PROJECT_ROOT)/ldscripts/nrf52-baseline-app-with-softdevice.ld
 
 $(call GenerateBuildRules)
-
-ble-pkap.png : ble-pkap.msc
-	mscgen -T png -i ble-pkap.msc -o ble-pkap.png

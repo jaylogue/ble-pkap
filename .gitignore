@@ -3,5 +3,3 @@ build/
 __pycache__/
 ble-pkap.code-workspace
 JLINK_MONITOR_ISR_SES.s
-ble-pkap.png
-ble-pkap.svg
