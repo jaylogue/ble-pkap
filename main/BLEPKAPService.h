@@ -25,7 +25,7 @@
 #define SAMPLEBLESERVICE_H_
 
 
-class SampleBLEService final
+class BLEPKAPService final
 {
 public:
     static ret_code_t Init(void);
@@ -40,8 +40,10 @@ private:
     static void HandleBLEEvent(ble_evt_t const * bleEvent, void * context);
     static ret_code_t RegisterVendorUUID(ble_uuid_t & uuid, const ble_uuid128_t & vendorUUID);
     static ble_gap_lesc_oob_data_t *GetPeerLESCOOBData(uint16_t conn_handle);
+    static void ClearAuthState(void);
 };
 
+// These functions must be supplied by the code that incorporates BLEPKAPService
 extern void OnAdvertisingStarted(void);
 extern void OnConnectionEstablished(void);
 extern void OnConnectionTerminated(void);

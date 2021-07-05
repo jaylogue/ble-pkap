@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <algorithm>
 
 #include "nrf_sdh.h"
 #include "nrf_sdh_ble.h"
@@ -40,6 +41,8 @@
 #include "nrf_ble_gatt.h"
 #include "ble_conn_state.h"
 #include "nrf_ble_lesc.h"
+#include "nrf_crypto.h"
+#include "nrf_crypto_error.h"
 
 #if NRF_LOG_ENABLED
 #include "nrf_log.h"
@@ -47,6 +50,7 @@
 #include "nrf_log_default_backends.h"
 #endif // NRF_LOG_ENABLED
 
+#include <BLEPKAP.h>
 #include <BLEPKAPService.h>
 #include <FunctExitUtils.h>
 #include <nRF5LESCOOB.h>
@@ -55,12 +59,9 @@ namespace {
 
 constexpr size_t kP256PubKeyCoordLength = 32;
 
-const ble_uuid128_t sLEDButtonServiceUUID128 = { { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x23, 0x15, 0x00, 0x00 } };
-const ble_uuid128_t sButtonCharUUID128       = { { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x24, 0x15, 0x00, 0x00 } };
-const ble_uuid128_t sLEDCharUUID128          = { { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00 } };
-
-const ble_uuid128_t sBLEPKAPServiceUUID128   = { { 0x24, 0x6b, 0x33, 0x15, 0x5f, 0x1c, 0x3c, 0x58, 0xc0, 0xe6, 0x2c, 0xbc, 0x00, 0xee, 0x78, 0xe2 } };
-const ble_uuid128_t sBLEPKAPAuthCharUUID128  = { { 0x24, 0x6b, 0x33, 0x15, 0x5f, 0x1c, 0x3c, 0x58, 0xc0, 0xe6, 0x2c, 0xbc, 0x01, 0xee, 0x78, 0xe2 } };;
+const ble_uuid128_t kLEDButtonServiceUUID128 = { { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x23, 0x15, 0x00, 0x00 } };
+const ble_uuid128_t kButtonCharUUID128       = { { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x24, 0x15, 0x00, 0x00 } };
+const ble_uuid128_t kLEDCharUUID128          = { { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00 } };
 
 NRF_BLE_GATT_DEF(sGATTModule);
 uint8_t sAdvHandle = BLE_GAP_ADV_SET_HANDLE_NOT_SET;
@@ -78,41 +79,74 @@ ble_gatts_char_handles_t sButtonCharHandles;
 uint16_t sBLEPKAPServiceHandle;
 ble_gatts_char_handles_t sBLEPKAPAuthCharHandles;
 
-ble_gap_lesc_p256_pk_t sPeerLESCPubKey;
-ble_gap_sec_keyset_t sKeySet;
+// Local device's BLE-PKAP private key
+// 
+// This is used by the local device to prove its identity to the peer during the BLE-PKAP
+// pairing process.  In this example, the private key is hardcoded into the firmware image.
+// In a production setting, each device would have a unique private key programmed into it
+// as part of a manufacturing or device enrollment process.
+//
+const uint8_t kDevicePrivKey[] =
+{ 
+    // -----BEGIN EC PRIVATE KEY-----
+    // MHcCAQEEIO6Wr7oIFjaQPG6YLtBMWwwJEt7YRHmcvlgvKxoPFudzoAoGCCqGSM49
+    // AwEHoUQDQgAEgSLr4fEu5N6NytlnJ+mbOCb+hU/vWwUkQpBWymjRocbyMTBokbam
+    // QpO8zDEHAvLeReWj27w6WAoUhSNZV5Q1nA==
+    // -----END EC PRIVATE KEY-----
 
-struct PeerAuthData
+    0xee, 0x96, 0xaf, 0xba, 0x08, 0x16, 0x36, 0x90, 0x3c, 0x6e, 0x98, 0x2e, 0xd0, 0x4c, 0x5b, 0x0c, 
+    0x09, 0x12, 0xde, 0xd8, 0x44, 0x79, 0x9c, 0xbe, 0x58, 0x2f, 0x2b, 0x1a, 0x0f, 0x16, 0xe7, 0x73
+};
+constexpr uint16_t kDeviceKeyId = 1;
+
+// Trusted peer's BLE-PKAP public key
+//
+// This is the public key of a peer node that this device trusts.  It is used by the 
+// local device to authenticate the peer during the BLE-PKAP pairing process.  In this
+// example, a single trusted public key is hardcoded into the firmware image.  In a
+// production setting, the trusted public key (or keys) would be programmed into the
+// device during manufacturing or device enrollment.
+//
+const uint8_t kTrustedPeerPubKey[] =
 {
-    static constexpr size_t RANDOM_VALUE_LEN = BLE_GAP_SEC_KEY_LEN;
-    static constexpr size_t CONFIRM_VALUE_LEN = BLE_GAP_SEC_KEY_LEN;
-    static constexpr size_t TOTAL_LEN = RANDOM_VALUE_LEN + CONFIRM_VALUE_LEN;
+    // -----BEGIN PUBLIC KEY-----
+    // MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgSLr4fEu5N6NytlnJ+mbOCb+hU/v
+    // WwUkQpBWymjRocbyMTBokbamQpO8zDEHAvLeReWj27w6WAoUhSNZV5Q1nA==
+    // -----END PUBLIC KEY-----
 
-    uint16_t conHandle;
-    uint8_t randomValue[RANDOM_VALUE_LEN];
-    uint8_t confirmValue[CONFIRM_VALUE_LEN];
+    // X
+    0x81, 0x22, 0xeb, 0xe1, 0xf1, 0x2e, 0xe4, 0xde, 0x8d, 0xca, 0xd9, 0x67, 0x27, 0xe9, 0x9b, 0x38,
+    0x26, 0xfe, 0x85, 0x4f, 0xef, 0x5b, 0x05, 0x24, 0x42, 0x90, 0x56, 0xca, 0x68, 0xd1, 0xa1, 0xc6, 
+    // Y
+    0xf2, 0x31, 0x30, 0x68, 0x91, 0xb6, 0xa6, 0x42, 0x93, 0xbc, 0xcc, 0x31, 0x07, 0x02, 0xf2, 0xde,
+    0x45, 0xe5, 0xa3, 0xdb, 0xbc, 0x3a, 0x58, 0x0a, 0x14, 0x85, 0x23, 0x59, 0x57, 0x94, 0x35, 0x9c
+};
+constexpr uint16_t kTrustedPeerKeyId = 1;
 
-    bool Decode(const uint8_t * buf, size_t len, uint16_t conHandle)
-    {
-        if (len == TOTAL_LEN)
-        {
-            memcpy(randomValue, buf, RANDOM_VALUE_LEN);
-            memcpy(confirmValue, buf + RANDOM_VALUE_LEN, CONFIRM_VALUE_LEN);
-            this->conHandle = conHandle;
-        }
-        else
-            this->conHandle = BLE_CONN_HANDLE_INVALID;
-        return (this->conHandle != BLE_CONN_HANDLE_INVALID);
-    }
+// BLE-PKAP authentication state
+struct BLEPKAPAuthState
+{
+    enum {
+        kState_Idle = 0,
+        kState_TokenReceived = 1,
+        kState_OOBPairingStarted = 2,
+        kState_PeerLESCPubKeyReceived = 3,
+        kState_PeerAuthenticated = 4,
+        kState_PairingComplete = 5
+    };
 
-    void Clear()
-    {
-        conHandle = BLE_CONN_HANDLE_INVALID;
-        memset(randomValue, 0, RANDOM_VALUE_LEN);
-        memset(confirmValue, 0, CONFIRM_VALUE_LEN);
-    }
-} sPeerAuthData;
+    static constexpr size_t kMaxAuthTokenLen = std::max(BLEPKAP::InitiatorAuthToken::kTokenLen,
+                                                        BLEPKAP::ResponderAuthToken::kTokenLen);
 
-void ToHexString(uint8_t * data, size_t dataLen, char * outBuf, size_t outBufSize)
+    ble_gap_lesc_p256_pk_t PeerLESCPubKey;
+    uint8_t AuthTokenBuf[kMaxAuthTokenLen];
+    uint16_t AuthConHandle;
+    uint8_t State;
+
+    void Clear() { *this = {}; }
+} sBLEPKAPAuthState;
+
+void ToHexString(const uint8_t * data, size_t dataLen, char * outBuf, size_t outBufSize)
 {
     for (; dataLen > 0; data++, dataLen--)
     {
@@ -126,19 +160,22 @@ void ToHexString(uint8_t * data, size_t dataLen, char * outBuf, size_t outBufSiz
 
 } // unnamed namespace
 
-ret_code_t SampleBLEService::Init(void)
+
+ret_code_t BLEPKAPService::Init(void)
 {
     ret_code_t res;
 
-    sPeerAuthData.Clear();
+    sBLEPKAPAuthState.Clear();
 
     // Register a handler for BLE events.
-    NRF_SDH_BLE_OBSERVER(m_ble_observer, BLE_OBSERVER_PRIO, SampleBLEService::HandleBLEEvent, NULL);
+    NRF_SDH_BLE_OBSERVER(m_ble_observer, BLE_OBSERVER_PRIO, BLEPKAPService::HandleBLEEvent, NULL);
 
     ble_conn_state_init();
 
     res = nrf_ble_lesc_init();
     SuccessOrExit(res);
+
+    // Register callback for when the SoftDevice requests the peer's LESC OOB data.
     nrf_ble_lesc_peer_oob_data_handler_set(GetPeerLESCOOBData);
 
     res = SetDeviceName();
@@ -153,42 +190,16 @@ ret_code_t SampleBLEService::Init(void)
     res = StartAdvertising();
     SuccessOrExit(res);
 
-    {
-        char buf[kP256PubKeyCoordLength * 2 + 1];
-        ble_gap_lesc_p256_pk_t * localPubKey = nrf_ble_lesc_public_key_get();
-
-        NRF_LOG_INFO("Local LESC public key:");
-        ToHexString(localPubKey->pk, kP256PubKeyCoordLength, buf, sizeof(buf));
-        NRF_LOG_INFO("  X: %s", buf);
-        ToHexString(localPubKey->pk + kP256PubKeyCoordLength, kP256PubKeyCoordLength, buf, sizeof(buf));
-        NRF_LOG_INFO("  Y: %s", buf);
-    }
-
-    {
-        char buf[BLE_GAP_SEC_KEY_LEN * 2 + 1];
-
-        res = nrf_ble_lesc_own_oob_data_generate();
-        SuccessOrExit(res);
-
-        ble_gap_lesc_oob_data_t * localOOBData = nrf_ble_lesc_own_oob_data_get();
-
-        NRF_LOG_INFO("Local LESC OOB data:");
-        ToHexString(localOOBData->c, BLE_GAP_SEC_KEY_LEN, buf, sizeof(buf));
-        NRF_LOG_INFO("  Confirmation Value: %s", buf);
-        ToHexString(localOOBData->r, BLE_GAP_SEC_KEY_LEN, buf, sizeof(buf));
-        NRF_LOG_INFO("  Random Value: %s", buf);
-    }
-
 exit:
     return res;
 }
 
-void SampleBLEService::Shutdown(void)
+void BLEPKAPService::Shutdown(void)
 {
 
 }
 
-void SampleBLEService::UpdateButtonState(bool isPressed)
+void BLEPKAPService::UpdateButtonState(bool isPressed)
 {
     // For each active connection, generate a notification for the Button characteristic.
     ble_conn_state_for_each_connected(
@@ -214,7 +225,7 @@ void SampleBLEService::UpdateButtonState(bool isPressed)
         &isPressed);
 }
 
-ret_code_t SampleBLEService::SetDeviceName(void)
+ret_code_t BLEPKAPService::SetDeviceName(void)
 {
     ret_code_t res;
     ble_gap_conn_sec_mode_t secMode;
@@ -240,7 +251,7 @@ exit:
     return res;
 }
 
-ret_code_t SampleBLEService::ConfigureAdvertising(void)
+ret_code_t BLEPKAPService::ConfigureAdvertising(void)
 {
     ret_code_t res;
     ble_advdata_t advData;
@@ -277,7 +288,7 @@ exit:
     return res;
 }
 
-ret_code_t SampleBLEService::StartAdvertising(void)
+ret_code_t BLEPKAPService::StartAdvertising(void)
 {
     ret_code_t res;
 
@@ -307,12 +318,15 @@ exit:
     return res;
 }
 
-ret_code_t SampleBLEService::ConfigureGATTService(void)
+ret_code_t BLEPKAPService::ConfigureGATTService(void)
 {
     ret_code_t res;
-    ble_add_char_params_t addCharParams;
-    ble_gatts_value_t value;
+    ble_gatts_attr_t attr;
+    ble_gatts_attr_md_t attrMD, cccdAttrMD;
+    ble_gatts_char_md_t charMD;
     uint8_t zero = 0;
+
+    NRF_LOG_INFO("Configuring BLE GATT service");
 
     // Initialize the nRF5 GATT module and set the allowable GATT MTU and GAP packet sizes
     // based on compile-time config values.
@@ -327,82 +341,92 @@ ret_code_t SampleBLEService::ConfigureGATTService(void)
     //     NOTE: An NRF_ERROR_NO_MEM here means the soft device hasn't been configured
     //     with space for enough custom UUIDs.  Typically, this limit is set by overriding
     //     the NRF_SDH_BLE_VS_UUID_COUNT config option.
-    res = RegisterVendorUUID(sLEDButtonServiceUUID, sLEDButtonServiceUUID128);
+    res = RegisterVendorUUID(sLEDButtonServiceUUID, kLEDButtonServiceUUID128);
     SuccessOrExit(res);
-    res = RegisterVendorUUID(sButtonCharUUID, sButtonCharUUID128);
+    res = RegisterVendorUUID(sButtonCharUUID, kButtonCharUUID128);
     SuccessOrExit(res);
-    res = RegisterVendorUUID(sLEDCharUUID, sLEDCharUUID128);
+    res = RegisterVendorUUID(sLEDCharUUID, kLEDCharUUID128);
     SuccessOrExit(res);
-    res = RegisterVendorUUID(sBLEPKAPServiceUUID, sBLEPKAPServiceUUID128);
+    res = RegisterVendorUUID(sBLEPKAPServiceUUID, BLEPKAP::kBLEPKAPServiceUUID128);
     SuccessOrExit(res);
-    res = RegisterVendorUUID(sBLEPKAPAuthCharUUID, sBLEPKAPAuthCharUUID128);
+    res = RegisterVendorUUID(sBLEPKAPAuthCharUUID, BLEPKAP::kBLEPKAPAuthCharUUID128);
     SuccessOrExit(res);
+
+    NRF_LOG_INFO("Adding LED-BUTTON service");
 
     // Add LED-BUTTON service
     res = sd_ble_gatts_service_add(BLE_GATTS_SRVC_TYPE_PRIMARY, &sLEDButtonServiceUUID, &sLEDButtonServiceHandle);
     SuccessOrExit(res);
 
     // Add button characteristic
-    memset(&addCharParams, 0, sizeof(addCharParams));
-    addCharParams.uuid = sButtonCharUUID.uuid;
-    addCharParams.uuid_type = sButtonCharUUID.type;
-    addCharParams.init_len = 1;
-    addCharParams.max_len = 1;
-    addCharParams.char_props.read = 1;
-    addCharParams.char_props.notify = 1;
-    addCharParams.read_access = SEC_OPEN;
-    addCharParams.cccd_write_access = SEC_OPEN;
-    res = characteristic_add(sLEDButtonServiceHandle, &addCharParams, &sButtonCharHandles);
+    memset(&attr, 0, sizeof(attr));
+    attr.p_uuid = &sButtonCharUUID;
+    attr.p_attr_md = &attrMD;
+    attr.max_len = 1;
+    attr.init_len = 1;
+    attr.p_value = &zero;
+    memset(&attrMD, 0, sizeof(attrMD));
+    attrMD.vloc = BLE_GATTS_VLOC_STACK;
+    BLE_GAP_CONN_SEC_MODE_SET_LESC_ENC_WITH_MITM(&attrMD.read_perm);
+    memset(&charMD, 0, sizeof(charMD));
+    charMD.char_props.read = 1;
+    charMD.char_props.notify = 1;
+    charMD.p_cccd_md  = &cccdAttrMD;
+    memset(&cccdAttrMD, 0, sizeof(cccdAttrMD));
+    cccdAttrMD.vloc = BLE_GATTS_VLOC_STACK;
+    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccdAttrMD.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_LESC_ENC_WITH_MITM(&cccdAttrMD.write_perm);
+    res = sd_ble_gatts_characteristic_add(sLEDButtonServiceHandle, &charMD, &attr, &sButtonCharHandles);
     SuccessOrExit(res);
 
     // Add LED characteristic
-    memset(&addCharParams, 0, sizeof(addCharParams));
-    addCharParams.uuid = sLEDCharUUID.uuid;
-    addCharParams.uuid_type = sLEDCharUUID.type;
-    addCharParams.init_len = 1;
-    addCharParams.max_len = 1;
-    addCharParams.char_props.read = 1;
-    addCharParams.char_props.write = 1;
-    addCharParams.read_access = SEC_OPEN;
-    addCharParams.write_access = SEC_OPEN;
-    res = characteristic_add(sLEDButtonServiceHandle, &addCharParams, &sLEDCharHandles);
+    memset(&attr, 0, sizeof(attr));
+    attr.p_uuid = &sLEDCharUUID;
+    attr.p_attr_md = &attrMD;
+    attr.max_len = 1;
+    attr.init_len = 1;
+    attr.p_value = &zero;
+    memset(&attrMD, 0, sizeof(attrMD));
+    attrMD.vloc = BLE_GATTS_VLOC_STACK;
+    BLE_GAP_CONN_SEC_MODE_SET_LESC_ENC_WITH_MITM(&attrMD.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_LESC_ENC_WITH_MITM(&attrMD.write_perm);
+    memset(&charMD, 0, sizeof(charMD));
+    charMD.char_props.read = 1;
+    charMD.char_props.write = 1;
+    res = sd_ble_gatts_characteristic_add(sLEDButtonServiceHandle, &charMD, &attr, &sLEDCharHandles);
     SuccessOrExit(res);
+
+    NRF_LOG_INFO("Adding BLE-PKAP service");
 
     // Add BLE-PKAP service
     res = sd_ble_gatts_service_add(BLE_GATTS_SRVC_TYPE_PRIMARY, &sBLEPKAPServiceUUID, &sBLEPKAPServiceHandle);
     SuccessOrExit(res);
 
     // Add BLE-PKAP Auth characteristic
-    memset(&addCharParams, 0, sizeof(addCharParams));
-    addCharParams.uuid = sBLEPKAPAuthCharUUID.uuid;
-    addCharParams.uuid_type = sBLEPKAPAuthCharUUID.type;
-    addCharParams.init_len = 0;
-    addCharParams.max_len = 32;
-    addCharParams.is_var_len = 1;
-    addCharParams.char_props.read = 1;
-    addCharParams.char_props.write = 1;
-    addCharParams.read_access = SEC_OPEN;
-    addCharParams.write_access = SEC_OPEN;
-    res = characteristic_add(sBLEPKAPServiceHandle, &addCharParams, &sBLEPKAPAuthCharHandles);
-    SuccessOrExit(res);
-
-    // Set the initial values of the characteristics
-    memset(&value, 0, sizeof(value));
-    value.len = 1;
-    value.p_value = &zero;
-    res = sd_ble_gatts_value_set(BLE_CONN_HANDLE_INVALID, sButtonCharHandles.value_handle, &value);
-    SuccessOrExit(res);
-    res = sd_ble_gatts_value_set(BLE_CONN_HANDLE_INVALID, sLEDCharHandles.value_handle, &value);
-    SuccessOrExit(res);
-    value.len = 0;
-    res = sd_ble_gatts_value_set(BLE_CONN_HANDLE_INVALID, sBLEPKAPAuthCharHandles.value_handle, &value);
+    memset(&attr, 0, sizeof(attr));
+    attr.p_uuid = &sBLEPKAPAuthCharUUID;
+    attr.p_attr_md = &attrMD;
+    attr.max_len = 128;
+    attr.init_len = 0;
+    attr.p_value  = &zero;
+    memset(&attrMD, 0, sizeof(attrMD));
+    attrMD.vloc = BLE_GATTS_VLOC_STACK;
+    attrMD.vlen = 1;
+    BLE_GAP_CONN_SEC_MODE_SET_LESC_ENC_WITH_MITM(&attrMD.read_perm);
+    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attrMD.write_perm);
+    memset(&charMD, 0, sizeof(charMD));
+    charMD.char_props.read = 1;
+    charMD.char_props.write = 1;
+    res = sd_ble_gatts_characteristic_add(sBLEPKAPServiceHandle, &charMD, &attr, &sBLEPKAPAuthCharHandles);
     SuccessOrExit(res);
 
 exit:
+    if (res != NRF_SUCCESS)
+        NRF_LOG_INFO("ConfigureGATTService() failed: %" PRId32, res);
     return res;
 }
 
-void SampleBLEService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
+void BLEPKAPService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
 {
     ret_code_t res;
     uint16_t conHandle = bleEvent->evt.gap_evt.conn_handle;
@@ -430,19 +454,15 @@ void SampleBLEService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
 
         NRF_LOG_INFO("BLE connection terminated (con %" PRIu16 ", reason 0x%02" PRIx8 ")", conHandle, bleEvent->evt.gap_evt.params.disconnected.reason);
 
+        // If BLE-PKAP pairing was performed on this connection...
+        if (sBLEPKAPAuthState.State != BLEPKAPAuthState::kState_Idle && sBLEPKAPAuthState.AuthConHandle == conHandle)
         {
-            ble_gatts_value_t value;
+            ClearAuthState();
 
-            NRF_LOG_INFO("BLE-PKAP: Clearing auth state");
-
-            // Clear the local copy of the peer auth data.
-            sPeerAuthData.Clear();
-
-            // Clear the cached Auth characteristic value.
-            memset(&value, 0, sizeof(value));
-            value.len = 0;
-            value.p_value = (uint8_t *)&value;
-            sd_ble_gatts_value_set(conHandle, sBLEPKAPAuthCharHandles.value_handle, &value);
+            // Force regeneration of local LESC public/private keys.
+            // This is necessary (although by itself not sufficient) to ensure the untrackability
+            // of the device.
+            nrf_ble_lesc_keypair_generate();
         }
 
         OnConnectionTerminated();
@@ -469,42 +489,53 @@ void SampleBLEService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
         NRF_LOG_INFO("    min_key_size: %" PRIu8, secParamsReq->peer_params.min_key_size);
         NRF_LOG_INFO("    max_key_size: %" PRIu8, secParamsReq->peer_params.max_key_size);
 
+        uint8_t secStatus;
+
         ble_gap_sec_params_t secParams;
         memset(&secParams, 0, sizeof(secParams));
-        secParams.bond = 0;
-        secParams.mitm = 0;
-        secParams.lesc = 1;
-        secParams.keypress = 0;
-        secParams.io_caps = BLE_GAP_IO_CAPS_NONE;
-        secParams.min_key_size = 16;
-        secParams.max_key_size = 16;
 
-        memset(&sKeySet, 0, sizeof(sKeySet));
-        sKeySet.keys_own.p_pk = nrf_ble_lesc_public_key_get();
-        sKeySet.keys_peer.p_pk = &sPeerLESCPubKey;
-        memset(&sPeerLESCPubKey, 0, sizeof(sPeerLESCPubKey));
+        ble_gap_sec_keyset_t keySet;
+        memset(&keySet, 0, sizeof(keySet));
 
-        uint8_t status = BLE_GAP_SEC_STATUS_SUCCESS;
-
-        if (!secParamsReq->peer_params.lesc)
+        // If the peer has requested BLE-PKAP pairing...
+        if (sBLEPKAPAuthState.State == BLEPKAPAuthState::kState_TokenReceived &&
+            sBLEPKAPAuthState.AuthConHandle == conHandle &&
+            secParamsReq->peer_params.lesc)
         {
-            status = BLE_GAP_SEC_STATUS_PAIRING_NOT_SUPP;
-            NRF_LOG_INFO("Rejecting legacy pairing");
-        }
+            NRF_LOG_INFO("BLE-PKAP: Starting LESC OOB pairing");
+            sBLEPKAPAuthState.State = BLEPKAPAuthState::kState_OOBPairingStarted;
 
-        else
-        {
-            if (sPeerAuthData.conHandle == conHandle)
+            // Instruct the SoftDevice perform LESC OOB pairing of the peer.
+            secStatus = BLE_GAP_SEC_STATUS_SUCCESS;
+            secParams.oob = 1;
+            secParams.lesc = 1;
+            secParams.min_key_size = 16;
+            secParams.max_key_size = 16;
+
+            // Supply the local LESC public key to the SoftDevice and provide space to 
+            // receive the peer's public key.
+            keySet.keys_own.p_pk = nrf_ble_lesc_public_key_get();
+            keySet.keys_peer.p_pk = &sBLEPKAPAuthState.PeerLESCPubKey;
+
             {
-                secParams.oob = 1;
-                NRF_LOG_INFO("BLE-PKAP: Initiating authenticated pairing");
+                char buf[kP256PubKeyCoordLength * 2 + 1];
+
+                NRF_LOG_INFO("    Local LESC public key:");
+                ToHexString(keySet.keys_own.p_pk->pk, kP256PubKeyCoordLength, buf, sizeof(buf));
+                NRF_LOG_INFO("        X: (%" PRId32 ") %s", kP256PubKeyCoordLength, buf);
+                ToHexString(keySet.keys_own.p_pk->pk + kP256PubKeyCoordLength, kP256PubKeyCoordLength, buf, sizeof(buf));
+                NRF_LOG_INFO("        Y: (%" PRId32 ") %s", kP256PubKeyCoordLength, buf);
             }
         }
 
-        res = sd_ble_gap_sec_params_reply(conHandle,
-                                          status,
-                                          &secParams,
-                                          &sKeySet);
+        // otherwise, reject the pairing attempt.
+        else
+        {
+            secStatus = BLE_GAP_SEC_STATUS_PAIRING_NOT_SUPP;
+            NRF_LOG_INFO("Rejecting non-BLE-PKAP pairing request");
+        }
+
+        res = sd_ble_gap_sec_params_reply(conHandle, secStatus, &secParams, &keySet);
         NRF_LOG_INFO("sd_ble_gap_sec_params_reply() result (con %" PRIu16 "): 0x%08" PRIX32, conHandle, res);
         SuccessOrExit(res);
         break;
@@ -518,10 +549,17 @@ void SampleBLEService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
         NRF_LOG_INFO("BLE_GAP_EVT_LESC_DHKEY_REQUEST received (con %" PRIu16 ")", conHandle);
         NRF_LOG_INFO("    Peer LESC public key:");
         ToHexString(lescDHKeyReq->p_pk_peer->pk, kP256PubKeyCoordLength, buf, sizeof(buf));
-        NRF_LOG_INFO("        X: %s", buf);
+        NRF_LOG_INFO("        X: (%" PRId32 ") %s", kP256PubKeyCoordLength, buf);
         ToHexString(lescDHKeyReq->p_pk_peer->pk + kP256PubKeyCoordLength, kP256PubKeyCoordLength, buf, sizeof(buf));
-        NRF_LOG_INFO("        Y: %s", buf);
+        NRF_LOG_INFO("        Y: (%" PRId32 ") %s", kP256PubKeyCoordLength, buf);
         NRF_LOG_INFO("    oobd_req: %" PRIu8, lescDHKeyReq->oobd_req);
+
+        if (sBLEPKAPAuthState.State == BLEPKAPAuthState::kState_OOBPairingStarted &&
+            sBLEPKAPAuthState.AuthConHandle == conHandle)
+        {
+            sBLEPKAPAuthState.State = BLEPKAPAuthState::kState_PeerLESCPubKeyReceived;
+            NRF_LOG_INFO("BLE-PKAP: Peer LESC public key received");
+        }
 
         break;
     }
@@ -575,6 +613,28 @@ void SampleBLEService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
         NRF_LOG_INFO("    sec mode 2, level 1: %" PRId8, authStatus->sm2_levels.lv1);
         NRF_LOG_INFO("    sec mode 2, level 2: %" PRId8, authStatus->sm2_levels.lv2);
 
+        if (sBLEPKAPAuthState.State == BLEPKAPAuthState::kState_PeerAuthenticated &&
+            sBLEPKAPAuthState.AuthConHandle == conHandle)
+        {
+            if (authStatus->auth_status != BLE_GAP_SEC_STATUS_SUCCESS)
+            {
+                NRF_LOG_INFO("BLE-PKAP: LESC OOB pairing FAILED");
+                ClearAuthState();
+            }
+
+            else if (!authStatus->lesc || !authStatus->sm1_levels.lv4)
+            {
+                NRF_LOG_INFO("BLE-PKAP: Unexpected authentication state");
+                ClearAuthState();
+            }
+
+            else
+            {
+                sBLEPKAPAuthState.State = BLEPKAPAuthState::kState_PairingComplete;
+                NRF_LOG_INFO("BLE-PKAP: Pairing complete");
+            }
+        }
+
         break;
     }
 
@@ -614,50 +674,70 @@ void SampleBLEService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
 
         else if (bleEvent->evt.gatts_evt.params.write.handle == sBLEPKAPAuthCharHandles.value_handle)
         {
+            BLEPKAP::InitiatorAuthToken authToken;
+
             NRF_LOG_INFO("BLE-PKAP: Auth characteristic write");
 
-            // Decode the peer authentication data
-            bool decodeSuccessful = sPeerAuthData.Decode(bleEvent->evt.gatts_evt.params.write.data,
-                                                         bleEvent->evt.gatts_evt.params.write.len,
-                                                         conHandle);
-
-            if (decodeSuccessful)
+            // If no BLE-PKAP pairing is in progress...
+            if (sBLEPKAPAuthState.State == BLEPKAPAuthState::kState_Idle)
             {
-                char buf[BLE_GAP_SEC_KEY_LEN * 2 + 1];
+                // Verify the size and structure of the peers's auth token by
+                // attempting to decode it.
+                res = authToken.Decode(bleEvent->evt.gatts_evt.params.write.data,
+                                       bleEvent->evt.gatts_evt.params.write.len);
 
-                NRF_LOG_INFO("BLE-PKAP: Received initiator auth token");
-                ToHexString(sPeerAuthData.confirmValue, PeerAuthData::CONFIRM_VALUE_LEN, buf, sizeof(buf));
-                NRF_LOG_INFO("    Confirmation Value: %s", buf);
-                ToHexString(sPeerAuthData.randomValue, PeerAuthData::RANDOM_VALUE_LEN, buf, sizeof(buf));
-                NRF_LOG_INFO("    Random Value: %s", buf);
+                if (res != NRF_SUCCESS)
+                {
+                    NRF_LOG_INFO("BLE-PKAP: Invalid auth token received from peer: %" PRId32, res);
+                }
+
+                // If successful, verify the peer is using a known key.
+                if (res == NRF_SUCCESS && authToken.KeyId != kTrustedPeerKeyId)
+                {
+                    NRF_LOG_INFO("BLE-PKAP: Unknown peer key id: %" PRIu16, authToken.KeyId);
+                    res = NRF_ERROR_NOT_FOUND;
+                }
+
+                if (res == NRF_SUCCESS)
+                {
+                    char buf[BLEPKAP::InitiatorAuthToken::kSigLen + 1];
+
+                    NRF_LOG_INFO("BLE-PKAP: Received peer auth token (len %" PRIu16 ")", bleEvent->evt.gatts_evt.params.write.len);
+                    NRF_LOG_INFO("    Format: %" PRIu8, authToken.Format);
+                    NRF_LOG_INFO("    KeyId: %" PRIu16, authToken.KeyId);
+                    ToHexString(authToken.Sig, BLEPKAP::InitiatorAuthToken::kSigLen, buf, sizeof(buf));
+                    NRF_LOG_INFO("    Sig: (%" PRId32 ") %s", BLEPKAP::InitiatorAuthToken::kSigLen, buf);
+                    ToHexString(authToken.Random, BLEPKAP::InitiatorAuthToken::kRandomLen, buf, sizeof(buf));
+                    NRF_LOG_INFO("    Random: (%" PRId32 ") %s", BLEPKAP::InitiatorAuthToken::kRandomLen, buf);
+
+                    // Save the auth token for later use
+                    memcpy(sBLEPKAPAuthState.AuthTokenBuf, bleEvent->evt.gatts_evt.params.write.data, BLEPKAP::InitiatorAuthToken::kTokenLen);
+
+                    // Begin the BLE-PKAP protocol.
+                    sBLEPKAPAuthState.State = BLEPKAPAuthState::kState_TokenReceived;
+                    sBLEPKAPAuthState.AuthConHandle = conHandle;
+                    NRF_LOG_INFO("BLE-PKAP: Starting BLE-PKAP protocol");
+                }
             }
+
             else
             {
-                NRF_LOG_INFO("BLE-PKAP: Invalid initiator auth token received");
+                NRF_LOG_INFO("BLE-PKAP: Pairing already in progress - Ignoring auth characteristic write");
             }
 
-            // After decoding the authentication data, immediately clear the characteristic
-            // value so that it can't be read.
+            // Immediately clear the auth characteristic value so that it can't be read.
             {
                 ble_gatts_value_t value;
-
-                NRF_LOG_INFO("BLE-PKAP: Clearing Auth characteristic");
-
-                uint8_t zero = 0;
                 memset(&value, 0, sizeof(value));
                 value.len = 0;
-                value.p_value = &zero;
-                res = sd_ble_gatts_value_set(conHandle, sBLEPKAPAuthCharHandles.value_handle, &value);
+                value.p_value = (uint8_t *)&value;
+                res = sd_ble_gatts_value_set(BLE_GAP_ADV_SET_HANDLE_NOT_SET, sBLEPKAPAuthCharHandles.value_handle, &value);
                 SuccessOrExit(res);
+                NRF_LOG_INFO("BLE-PKAP: Auth characteristic cleared");
             }
         }
 
         break;
-
-//    case BLE_GATTS_EVT_HVC:
-//        err = HandleTXComplete(event);
-//        SuccessOrExit(err);
-//        break;
 
     default:
         NRF_LOG_INFO("Other BLE event %" PRIu16 "(con %" PRIu16 ")", bleEvent->header.evt_id, conHandle);
@@ -670,7 +750,7 @@ exit:
     return;
 }
 
-ret_code_t SampleBLEService::RegisterVendorUUID(ble_uuid_t & uuid, const ble_uuid128_t & vendorUUID)
+ret_code_t BLEPKAPService::RegisterVendorUUID(ble_uuid_t & uuid, const ble_uuid128_t & vendorUUID)
 {
     ret_code_t res;
     ble_uuid128_t vendorBaseUUID;
@@ -697,79 +777,153 @@ exit:
     return res;
 }
 
-ble_gap_lesc_oob_data_t *SampleBLEService::GetPeerLESCOOBData(uint16_t conHandle)
+ble_gap_lesc_oob_data_t *BLEPKAPService::GetPeerLESCOOBData(uint16_t conHandle)
 {
     ret_code_t res;
     static ble_gap_lesc_oob_data_t lescOOBData;
 
-    // If the initiator didn't write an auth token to the Auth characteristic prior to starting
-    // pairing, force OOB pairing to fail by returning a NULL.
-    if (sPeerAuthData.conHandle != conHandle)
+    //
+    // This function is called by the nrf_ble_lesc module during LESC OOB pairing,
+    // at the point the SoftDevice needs the peer's OOB data.  This is where the
+    // bulk of the BLE-PKAP authentication process happens.
+    //
+
+    // Verify we're in the correct state.  The code in HandleBLEEvent() that
+    // handles the BLE_GAP_EVT_SEC_PARAMS_REQUEST event should ensure that
+    // this is always the case, but we double check here.
+    if (sBLEPKAPAuthState.State != BLEPKAPAuthState::kState_PeerLESCPubKeyReceived || 
+        sBLEPKAPAuthState.AuthConHandle != conHandle)
     {
-        NRF_LOG_INFO("BLE-PKAP: Pairing failed - No initiator auth token received");
-        return NULL;
+        NRF_LOG_INFO("BLE-PKAP: Pairing failed - Unexpected state in GetPeerLESCOOBData()");
+        ExitNow(res = NRF_ERROR_INVALID_STATE);
     }
 
-    // Initialize the OOB data structure needed by the SoftDevice to confirm OOB pairing.
-    //
-    // TODO: reduce global memory usage by eliminating lescOOBData and unioning the
-    // ble_gap_lesc_oob_data_t structure with sPeerAuthData
-    //
-    memset(&lescOOBData, 0, sizeof(lescOOBData));
-    memcpy(lescOOBData.r, sPeerAuthData.randomValue, sizeof(lescOOBData.r));
-
-    // Compute the expected confirmation value given the initiator's public key and the random
-    // value supplied in the auth data.
-    nrf5utils::ComputeLESCOOBConfirmationValue(sPeerLESCPubKey.pk, sPeerAuthData.randomValue, lescOOBData.c);
+    // Authenticate the peer using their auth token...
 
     {
-        char buf[BLE_GAP_SEC_KEY_LEN * 2 + 1];
-        ToHexString(lescOOBData.c, BLE_GAP_SEC_KEY_LEN, buf, sizeof(buf));
-        NRF_LOG_INFO("BLE-PKAP: Expected initiator confirmation value: %s", buf);
+        BLEPKAP::InitiatorAuthToken initAuthToken;
+
+        // Decode the peer's auth token.
+        res = initAuthToken.Decode(sBLEPKAPAuthState.AuthTokenBuf, BLEPKAP::InitiatorAuthToken::kTokenLen);
+        if (res != NRF_SUCCESS)
+        {
+            NRF_LOG_INFO("InitiatorAuthToken::Decode() failed: %" PRIu32, res);
+            ExitNow();
+        }
+
+        // Initialize the OOB data structure needed by the SoftDevice to confirm OOB pairing.
+        //
+        // TODO: reduce global memory usage by eliminating lescOOBData and unioning the
+        // ble_gap_lesc_oob_data_t structure with sBLEPKAPAuthState??? 
+        //
+        memset(&lescOOBData, 0, sizeof(lescOOBData));
+        memcpy(lescOOBData.r, initAuthToken.Random, sizeof(lescOOBData.r));
+
+        // Compute the expected OOB confirmation value for the peer given the peer's LESC public
+        // key and the random value supplied in the auth token.
+        nrf5utils::ComputeLESCOOBConfirmationValue(sBLEPKAPAuthState.PeerLESCPubKey.pk, initAuthToken.Random, lescOOBData.c);
+
+        {
+            char buf[BLE_GAP_SEC_KEY_LEN * 2 + 1];
+            ToHexString(lescOOBData.c, BLE_GAP_SEC_KEY_LEN, buf, sizeof(buf));
+            NRF_LOG_INFO("BLE-PKAP: Expected peer OOB confirmation value: (%" PRId32 ") %s", BLE_GAP_SEC_KEY_LEN, buf);
+        }
+
+        // Verify the signature of the confirmation value contained in the auth token against
+        // the peer's public key.
+        res = initAuthToken.Verify(lescOOBData.c, sizeof(lescOOBData.c), kTrustedPeerPubKey, sizeof(kTrustedPeerPubKey));
+        if (res != NRF_SUCCESS)
+        {
+            if (res == NRF_ERROR_CRYPTO_ECDSA_INVALID_SIGNATURE)
+            {
+                NRF_LOG_INFO("BLE-PKAP: Pairing failed - Peers's auth token failed verification");
+            }
+            else
+            {
+                NRF_LOG_INFO("BLE-PKAP: Pairing failed - Signature verification error: %" PRIu32, res);
+            }
+            ExitNow();
+        }
+
+        sBLEPKAPAuthState.State = BLEPKAPAuthState::kState_PeerAuthenticated;
+        NRF_LOG_INFO("BLE-PKAP: Peer authentication SUCCESSFUL");
     }
 
-    // MOCK authentication of the peer by comparing the computed confirmation value to
-    // the value supplied in the peer's auth data.  If they don't match, fail pairing.
-    //
-    // NOTE THAT THIS IS NOT SECURE
-    //
-    if (memcmp(lescOOBData.c, sPeerAuthData.confirmValue, PeerAuthData::CONFIRM_VALUE_LEN) != 0)
-    {
-        NRF_LOG_INFO("BLE-PKAP: Pairing failed - Initiator confirmation value mismatch");
-        return NULL;
-    }
+    // Generate and publish the local device's auth token so that the peer can authenticate us...
 
-    NRF_LOG_INFO("BLE-PKAP: Initiator authentication successful");
-
-    // Set the Auth characteristic value to a MOCK of the responder's auth token (in this case,
-    // just the confirmation value sent by the initiator).
-    //
-    // NOTE THAT THIS IS NOT SECURE
-    //
     {
         ble_gatts_value_t value;
-        char buf[BLE_GAP_SEC_KEY_LEN * 2 + 1];
+        size_t respAuthTokenLen;
 
-        NRF_LOG_INFO("BLE-PKAP: Publishing responder auth token");
-        ToHexString(sPeerAuthData.confirmValue, PeerAuthData::CONFIRM_VALUE_LEN, buf, sizeof(buf));
-        NRF_LOG_INFO("    Confirmation Value: %s", buf);
+        // Generate a responder auth token based on the initiator's OOB confirmation value and
+        // the local device's private authentication key.
+        respAuthTokenLen = sizeof(sBLEPKAPAuthState.AuthTokenBuf);
+        res = BLEPKAP::ResponderAuthToken::Generate(kDeviceKeyId, lescOOBData.c, sizeof(lescOOBData.c),
+                                                    kDevicePrivKey, sizeof(kDevicePrivKey),
+                                                    sBLEPKAPAuthState.AuthTokenBuf, respAuthTokenLen);
+        if (res != NRF_SUCCESS)
+        {
+            NRF_LOG_INFO("ResponderAuthToken::Generate() failed: %" PRIu32, res);
+            ExitNow();
+        }
 
+        {
+            BLEPKAP::ResponderAuthToken authToken;
+            char buf[BLEPKAP::ResponderAuthToken::kSigLen + 1];
+
+            authToken.Decode(sBLEPKAPAuthState.AuthTokenBuf, respAuthTokenLen);
+            NRF_LOG_INFO("BLE-PKAP: Generated responder auth token (len %" PRIu32 ")", respAuthTokenLen);
+            NRF_LOG_INFO("    Format: %" PRIu8, authToken.Format);
+            NRF_LOG_INFO("    KeyId: %" PRIu16, authToken.KeyId);
+            ToHexString(authToken.Sig, BLEPKAP::ResponderAuthToken::kSigLen, buf, sizeof(buf));
+            NRF_LOG_INFO("    Sig: (%" PRId32 ") %s", BLEPKAP::ResponderAuthToken::kSigLen, buf);
+        }
+
+        // Publish the responder auth token as the value of the auth characteristic, such that
+        // the peer may read it and use it to authenticate the local device.
         memset(&value, 0, sizeof(value));
-        value.len = PeerAuthData::CONFIRM_VALUE_LEN;
-        value.p_value = sPeerAuthData.confirmValue;
+        value.len = respAuthTokenLen;
+        value.p_value = sBLEPKAPAuthState.AuthTokenBuf;
         res = sd_ble_gatts_value_set(conHandle, sBLEPKAPAuthCharHandles.value_handle, &value);
         if (res != NRF_SUCCESS)
         {
-            NRF_LOG_INFO("sd_ble_gatts_value_set failed: %lu", res);
-            return NULL;
+            NRF_LOG_INFO("sd_ble_gatts_value_set failed: %" PRIu32, res);
+            ExitNow();
         }
     }
 
-    // Clear the stored peer auth state so that subsequent attempts at pairing don't reuse
-    // stale data.
-    sPeerAuthData.Clear();
+exit:
+
+    if (res != NRF_SUCCESS)
+    {
+        ClearAuthState();
+
+        // In the case of an error, return invalid LESC OOB data, which will cause
+        // the BLE OOB pairing process to fail and result in the peer receiving an
+        // authentication error.  This is preferable to returning NULL which will
+        // trigger an internal error in the nrf_ble_lesc module that can only be
+        // reset by re-initializing the module.
+        memset(&lescOOBData, 42, sizeof(lescOOBData));
+    }
 
     return &lescOOBData;
+}
+
+void BLEPKAPService::ClearAuthState(void)
+{
+    // Clear the local BLE-PKAP authentication state.
+    sBLEPKAPAuthState.Clear();
+
+    // Clear the cached Auth characteristic value.
+    {
+        ble_gatts_value_t value;
+        memset(&value, 0, sizeof(value));
+        value.len = 0;
+        value.p_value = (uint8_t *)&value;
+        sd_ble_gatts_value_set(BLE_GAP_ADV_SET_HANDLE_NOT_SET, sBLEPKAPAuthCharHandles.value_handle, &value);
+    }
+
+    NRF_LOG_INFO("BLE-PKAP: Auth state cleared");
 }
 
 #endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT

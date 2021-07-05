@@ -96,7 +96,7 @@ static void ButtonEventHandler(uint8_t buttonPin, uint8_t buttonAction)
     {
         NRF_LOG_INFO("Button state change: %s", buttonAction == APP_BUTTON_PUSH ? "PRESSED" : "RELEASED");
 
-        SampleBLEService::UpdateButtonState(buttonAction == APP_BUTTON_PUSH);
+        BLEPKAPService::UpdateButtonState(buttonAction == APP_BUTTON_PUSH);
     }
 }
 
@@ -266,7 +266,7 @@ int main(void)
 
 #if SOFTDEVICE_PRESENT
 
-    res = SampleBLEService::Init();
+    res = BLEPKAPService::Init();
     APP_ERROR_CHECK(res);
 
 #endif // SOFTDEVICE_PRESENT

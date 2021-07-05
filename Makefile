@@ -30,6 +30,7 @@ APP = ble-pkap-responder-app
 SRCS = \
     $(PROJECT_ROOT)/main/main.cpp \
     $(PROJECT_ROOT)/main/BLEPKAPService.cpp \
+    $(PROJECT_ROOT)/main/BLEPKAP.cpp \
     $(PROJECT_ROOT)/support/nrf5/nRF5SysTime.cpp \
     $(PROJECT_ROOT)/support/nrf5/nRF5LESCOOB.cpp \
     $(PROJECT_ROOT)/support/general/CXXExceptionStubs.cpp \
