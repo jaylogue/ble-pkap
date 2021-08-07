@@ -1,9 +1,9 @@
 :
 
 SCRIPT_ROOT=`dirname "$0"`
-GNU_INSTALL_ROOT=${GNU_INSTALL_ROOT:-${HOME}/tools/arm/gcc-arm-none-eabi-7-2018-q2-update/bin}
+GNU_INSTALL_ROOT=${GNU_INSTALL_ROOT:-${HOME}/tools/arm/gcc-arm-none-eabi-10.3-2021.07/bin}
 GDB=${GNU_INSTALL_ROOT}/arm-none-eabi-gdb
-DEFAULT_APP=./build/nrf52-baseline-app.out
+DEFAULT_APP=./build/ble-pkap-responder-app.out
 STARTUP_CMDS=${SCRIPT_ROOT}/gdb-startup-cmds.txt
 
 if [ $# -eq 0 ]; then
