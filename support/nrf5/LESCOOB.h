@@ -1,6 +1,6 @@
 /*
  *
- *    Copyright (c) Jay Logue
+ *    Copyright (c) 2021 Jay Logue
  *    All rights reserved.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,8 +22,8 @@
  *         Nordic nRF5 platform.
  */
 
-#ifndef NRF5LESCOOB_H
-#define NRF5LESCOOB_H
+#ifndef LESCOOB_H
+#define LESCOOB_H
 
 namespace nrf5utils {
 
@@ -39,8 +39,10 @@ constexpr size_t kBLELESCOOBConfirmLength = 16;
  */
 constexpr size_t kBLELESCOOBRandomLength = 16;
 
-ret_code_t ComputeLESCOOBConfirmationValue(const uint8_t * pkx, const uint8_t * r, uint8_t * c);
+extern ret_code_t ComputeLESCOOBConfirmationValue(const uint8_t * pkx, const uint8_t * r, uint8_t * c);
+extern void LogLocalLESCPublicKey(void);
+extern void LogLocalLESCOOBData(void);
 
 } // namespace nrf5utils
 
-#endif // NRF5LESCOOB_H
+#endif // LESCOOB_H

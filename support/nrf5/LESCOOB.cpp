@@ -1,6 +1,6 @@
 /*
  *
- *    Copyright (c) Jay Logue
+ *    Copyright (c) 2021 Jay Logue
  *    All rights reserved.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,7 @@
 
 #include "nrf_crypto.h"
 #include "nrf_crypto_error.h"
+#include "nrf_ble_lesc.h"
 
 #if NRF_LOG_ENABLED
 #include "nrf_log.h"
@@ -37,7 +38,23 @@
 #endif // NRF_LOG_ENABLED
 
 #include <FunctExitUtils.h>
-#include <nRF5LESCOOB.h>
+#include <LESCOOB.h>
+
+namespace {
+
+void ToHexString(uint8_t * data, size_t dataLen, char * outBuf, size_t outBufSize)
+{
+    for (; dataLen > 0; data++, dataLen--)
+    {
+        snprintf(outBuf, outBufSize, "%02" PRIx8, *data);
+        if (outBufSize <= 2)
+            break;
+        outBuf += 2;
+        outBufSize -= 2;
+    }
+}
+
+}
 
 namespace nrf5utils {
 
@@ -146,5 +163,55 @@ exit:
 }
 
 #endif // NRF_CRYPTO_ENABLED
+
+
+#if NRF_BLE_LESC_ENABLED
+
+/** Log the local device's LESC public key value.
+ */
+void LogLocalLESCPublicKey(void)
+{
+#if NRF_LOG_ENABLED && NRF_LOG_LEVEL >= NRF_LOG_SEVERITY_INFO
+
+    char buf[kP256PubKeyCoordLength * 2 + 1];
+    ble_gap_lesc_p256_pk_t * localPubKey = nrf_ble_lesc_public_key_get();
+
+    NRF_LOG_INFO("Local LESC public key:");
+    ToHexString(localPubKey->pk, kP256PubKeyCoordLength, buf, sizeof(buf));
+    NRF_LOG_INFO("  X: %s", buf);
+    ToHexString(localPubKey->pk + kP256PubKeyCoordLength, kP256PubKeyCoordLength, buf, sizeof(buf));
+    NRF_LOG_INFO("  Y: %s", buf);
+
+#endif // NRF_LOG_ENABLED && NRF_LOG_LEVEL >= NRF_LOG_SEVERITY_INFO
+}
+
+/** Log the local device's LESC OOB data.
+ */
+void LogLocalLESCOOBData(void)
+{
+#if NRF_LOG_ENABLED && NRF_LOG_LEVEL >= NRF_LOG_SEVERITY_INFO
+
+    char buf[BLE_GAP_SEC_KEY_LEN * 2 + 1];
+
+    ble_gap_lesc_oob_data_t * localOOBData = nrf_ble_lesc_own_oob_data_get();
+
+    NRF_LOG_INFO("Local LESC OOB data:");
+    if (localOOBData != NULL)
+    {
+        ToHexString(localOOBData->c, BLE_GAP_SEC_KEY_LEN, buf, sizeof(buf));
+        NRF_LOG_INFO("  Confirmation Value: %s", buf);
+        ToHexString(localOOBData->r, BLE_GAP_SEC_KEY_LEN, buf, sizeof(buf));
+        NRF_LOG_INFO("  Random Value: %s", buf);
+    }
+    else
+    {
+        NRF_LOG_INFO("  (not available)");
+    }
+
+#endif // NRF_LOG_ENABLED && NRF_LOG_LEVEL >= NRF_LOG_SEVERITY_INFO
+}
+
+#endif // NRF_BLE_LESC_ENABLED
+
 
 } // namespace nrf5utils

@@ -1,6 +1,6 @@
 /*
  *
- *    Copyright (c) Jay Logue
+ *    Copyright (c) 2021 Jay Logue
  *    All rights reserved.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,24 +18,33 @@
 
 /**
  *   @file
- *         Configuration overrides for the nrf52-baseline-app embedded application.
+ *         Configuration overrides for the ble-pkap embedded application.
  */
 
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
-// ----- General Application Config -----
+// ----- Main Application Config -----
 
-#define APP_DEVICE_NAME_PREFIX "BLE-PKAP-"
-#define APP_ADVERTISING_RATE_MS 500
 #define APP_STATUS_LED_PIN BSP_LED_0
-#define APP_STATUS_LED_FAST_INTERVAL 200
-#define APP_STATUS_LED_SLOW_INTERVAL 500
+#define APP_STATUS_LED_BLINK_INTERVAL 500
 #define APP_UI_LED_PIN  BSP_LED_1
 #define APP_UI_BUTTON_PIN BSP_BUTTON_0
 #define APP_UI_BUTTON_ACTIVE_STATE APP_BUTTON_ACTIVE_LOW
 #define APP_UI_BUTTON_PULL_CONFIG NRF_GPIO_PIN_PULLUP
 #define APP_BUTTON_DETECTION_DELAY APP_TIMER_TICKS(50)
+
+// ----- SimpleBLEApp Class Config -----
+
+#define SIMPLE_BLE_APP_DEFAULT_DEVICE_NAME "BLE-PKAP"
+#define SIMPLE_BLE_APP_UNIQUE_DEVICE_NAME 0
+#define SIMPLE_BLE_APP_EXTERNAL_PAIRING 1
+
+// ----- LEDButtonService Class Config -----
+
+// Restrict access to LED-Button service characteristics to authenticated
+// peer's only (security mode 1, level 4).
+#define LED_BUTTON_SERVICE_CHAR_PERM { 1, 4 }
 
 // ----- Memory Config -----
 
@@ -66,8 +75,6 @@
 #define NRF_BLE_GATT_ENABLED 1
 #define NRF_SDH_BLE_GATT_MAX_MTU_SIZE 251
 #define NRF_SDH_BLE_GAP_DATA_LENGTH 251
-//#define NRF_SDH_BLE_GATTS_ATTR_TAB_SIZE 248
-#define BLE_OBSERVER_PRIO 3
 #define BLE_CONN_CONFIG_TAG 1
 
 // ----- FDS / Flash Config -----
@@ -108,11 +115,7 @@
 #define SEGGER_RTT_CONFIG_MAX_NUM_UP_BUFFERS 1
 #define SEGGER_RTT_CONFIG_BUFFER_SIZE_DOWN 16
 #define SEGGER_RTT_CONFIG_MAX_NUM_DOWN_BUFFERS 1
-
-// <0=> SKIP
-// <1=> TRIM
-// <2=> BLOCK_IF_FIFO_FULL
-#define SEGGER_RTT_CONFIG_DEFAULT_MODE 1
+#define SEGGER_RTT_CONFIG_DEFAULT_MODE 1    // 0=SKIP, 1=TRIM, 2=BLOCK_IF_FIFO_FULL
 
 #define NRF_LOG_BACKEND_RTT_TEMP_BUFFER_SIZE 64
 #define NRF_LOG_BACKEND_RTT_TX_RETRY_DELAY_MS 1

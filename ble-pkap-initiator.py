@@ -229,11 +229,11 @@ WwUkQpBWymjRocbyMTBokbamQpO8zDEHAvLeReWj27w6WAoUhSNZV5Q1nA==
             print('BLE-PKAP initiator auth token:')
             print('  (%d) %s' % (len(initAuthToken), initAuthToken.hex()))
 
-            # Send the auth token to the responder.        
+            # Send the auth token to the responder.
             print('Writing initiator token to PKAP Auth characteristic')
             self.pkapAuthChar.WriteValue(initAuthToken, [])
             
-            # Initiator BLE pairing with the responding device.
+            # Initiate BLE pairing with the responding device.
             self.pairDevice()
         except:
             self.eventLoop.quit()
@@ -259,7 +259,7 @@ WwUkQpBWymjRocbyMTBokbamQpO8zDEHAvLeReWj27w6WAoUhSNZV5Q1nA==
                 self.deviceObj.Pair(callback=onPairComplete)
             else:
                 print('Device already paired')
-                self.startUI()
+                self.authResponder()
         except:
             self.eventLoop.quit()
             raise
@@ -325,10 +325,8 @@ WwUkQpBWymjRocbyMTBokbamQpO8zDEHAvLeReWj27w6WAoUhSNZV5Q1nA==
             self.ledChar = self.getCharacteristicObj(devicePath, BLEPKAPInitiator.LED_CHAR_UUID)
             self.buttonChar = self.getCharacteristicObj(devicePath, BLEPKAPInitiator.BUTTON_CHAR_UUID)
 
-            # Set the initial state of the LED to off
-            self.setLED(False)
-
             # Listen for changes to the button state
+            print('Enabling button notifications')
             self.buttonChar.PropertiesChanged.connect(onButtonNotify)
             self.buttonChar.StartNotify()
 

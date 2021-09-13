@@ -78,9 +78,6 @@ public:
                                uint8_t * outBuf, size_t & outSize);
 };
 
-extern const ble_uuid128_t kBLEPKAPServiceUUID128;
-extern const ble_uuid128_t kBLEPKAPAuthCharUUID128;
-
 inline void InitiatorAuthToken::Clear()
 {
     *this = {};

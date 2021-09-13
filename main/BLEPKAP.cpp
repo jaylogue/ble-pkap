@@ -26,23 +26,17 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "ble.h"
-#include "nrf_crypto.h"
-#include "nrf_crypto_error.h"
+#include <ble.h>
+#include <nrf_crypto.h>
 
 #if NRF_LOG_ENABLED
-#include "nrf_log.h"
-#include "nrf_log_ctrl.h"
-#include "nrf_log_default_backends.h"
+#include <nrf_log.h>
 #endif // NRF_LOG_ENABLED
 
-#include <FunctExitUtils.h>
 #include <BLEPKAP.h>
+#include <FunctExitUtils.h>
 
 namespace BLEPKAP {
-
-const ble_uuid128_t kBLEPKAPServiceUUID128   = { { 0x24, 0x6b, 0x33, 0x15, 0x5f, 0x1c, 0x3c, 0x58, 0xc0, 0xe6, 0x2c, 0xbc, 0x00, 0xee, 0x78, 0xe2 } };
-const ble_uuid128_t kBLEPKAPAuthCharUUID128  = { { 0x24, 0x6b, 0x33, 0x15, 0x5f, 0x1c, 0x3c, 0x58, 0xc0, 0xe6, 0x2c, 0xbc, 0x01, 0xee, 0x78, 0xe2 } };;
 
 ret_code_t InitiatorAuthToken::Decode(const uint8_t * buf, size_t len)
 {
@@ -145,8 +139,6 @@ ret_code_t InitiatorAuthToken::Generate(uint16_t keyId, const uint8_t * confirm,
 exit:
     return res;
 }
-
-
 
 ret_code_t ResponderAuthToken::Decode(const uint8_t * buf, size_t len)
 {
