@@ -33,6 +33,9 @@ public:
 
 private:
     static void HandleBLEEvent(ble_evt_t const * bleEvent, void * context);
+
+    BLEEventLogger() = delete;
+    ~BLEEventLogger() = delete;
 };
 
 } // namespace nrf5utils

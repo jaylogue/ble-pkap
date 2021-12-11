@@ -105,28 +105,32 @@ static void StatusLEDTimerHandler(void * context)
     nrf_gpio_pin_toggle(APP_STATUS_LED_PIN);
 }
 
-void SimpleBLEApp::Event::OnAdvertisingStarted(void)
-{
-    app_timer_stop(sStatusLEDTimer);
-    app_timer_start(sStatusLEDTimer, APP_TIMER_TICKS(APP_STATUS_LED_BLINK_INTERVAL), NULL);
-}
+static SIMPLE_EVENT_OBSERVER(sOnAdvertisingStarted, SimpleBLEApp::Event::OnAdvertisingStarted, 0,
+    []() {
+        app_timer_stop(sStatusLEDTimer);
+        app_timer_start(sStatusLEDTimer, APP_TIMER_TICKS(APP_STATUS_LED_BLINK_INTERVAL), NULL);
+    }
+);
 
-void SimpleBLEApp::Event::OnConnectionEstablished(uint16_t conHandle, const ble_gap_evt_connected_t * conEvent)
-{
-    app_timer_stop(sStatusLEDTimer);
-    nrf_gpio_pin_clear(APP_STATUS_LED_PIN);
-}
+static SIMPLE_EVENT_OBSERVER(sOnConnectionEstablished, SimpleBLEApp::Event::OnConnectionEstablished, 0,
+    [](uint16_t conHandle, const ble_gap_evt_connected_t * conEvent) {
+        app_timer_stop(sStatusLEDTimer);
+        nrf_gpio_pin_clear(APP_STATUS_LED_PIN);
+    }
+);
 
-void SimpleBLEApp::Event::OnConnectionTerminated(uint16_t conHandle, const ble_gap_evt_disconnected_t * disconEvent)
-{
-    app_timer_stop(sStatusLEDTimer);
-    nrf_gpio_pin_set(APP_STATUS_LED_PIN);
-}
+static SIMPLE_EVENT_OBSERVER(sOnConnectionTerminated, SimpleBLEApp::Event::OnConnectionTerminated, 0,
+    [](uint16_t conHandle, const ble_gap_evt_disconnected_t * disconEvent) {
+        app_timer_stop(sStatusLEDTimer);
+        nrf_gpio_pin_set(APP_STATUS_LED_PIN);
+    }
+);
 
-void LEDButtonService::Event::OnLEDWrite(bool setOn)
-{
-    nrf_gpio_pin_write(APP_UI_LED_PIN, setOn ? 0 : 1);
-}
+static SIMPLE_EVENT_OBSERVER(sOnLEDWrite, LEDButtonService::Event::OnLEDWrite, 0,
+    [](bool setOn) {
+        nrf_gpio_pin_write(APP_UI_LED_PIN, setOn ? 0 : 1);
+    }
+);
 
 bool BLEPKAPService::Callback::IsKnownPeerKeyId(uint16_t keyId)
 {

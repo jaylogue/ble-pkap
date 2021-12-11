@@ -46,6 +46,9 @@ private:
     static void HandleBLEEvent(ble_evt_t const * bleEvent, void * context);
     static ble_gap_lesc_oob_data_t *GetPeerLESCOOBData(uint16_t conn_handle);
     static void ClearAuthState(void);
+
+    BLEPKAPService() = delete;
+    ~BLEPKAPService() = delete;
 };
 
 /** Compile-time configuration options for the BLEPKAPService class

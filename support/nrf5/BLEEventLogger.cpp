@@ -23,7 +23,9 @@
 
 #include <sdk_common.h>
 
-#if defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
+#if !defined(SOFTDEVICE_PRESENT) || !SOFTDEVICE_PRESENT
+#error BLEEventLogger requires SoftDevice to be enabled
+#endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -87,10 +89,6 @@ void BLEEventLogger::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
         NRF_LOG_INFO("BLE connection terminated (con %" PRIu16 ", reason 0x%02" PRIx8 ")", conHandle, bleEvent->evt.gap_evt.params.disconnected.reason);
         return;
 
-    case BLE_GAP_EVT_CONN_PARAM_UPDATE:
-        eventName = "BLE_GAP_EVT_CONN_PARAM_UPDATE";
-        break;
-
     case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
     {
         const ble_gap_evt_sec_params_request_t * secParamsReq = &bleEvent->evt.gap_evt.params.sec_params_request;
@@ -105,18 +103,6 @@ void BLEEventLogger::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
         NRF_LOG_INFO("    max_key_size: %" PRIu8, secParamsReq->peer_params.max_key_size);
         return;
     }
-
-    case BLE_GAP_EVT_SEC_INFO_REQUEST:
-        eventName = "BLE_GAP_EVT_SEC_INFO_REQUEST";
-        break;
-
-    case BLE_GAP_EVT_PASSKEY_DISPLAY:
-        eventName = "BLE_GAP_EVT_PASSKEY_DISPLAY";
-        break;
-
-    case BLE_GAP_EVT_KEY_PRESSED:
-        eventName = "BLE_GAP_EVT_KEY_PRESSED";
-        break;
 
     case BLE_GAP_EVT_AUTH_KEY_REQUEST:
     {
@@ -185,84 +171,63 @@ void BLEEventLogger::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
         return;
     }
 
-    case BLE_GAP_EVT_RSSI_CHANGED:
-        eventName = "BLE_GAP_EVT_RSSI_CHANGED";
-        break;
-
-    case BLE_GAP_EVT_ADV_REPORT:
-        eventName = "BLE_GAP_EVT_ADV_REPORT";
-        break;
-
-    case BLE_GAP_EVT_SEC_REQUEST:
-        eventName = "BLE_GAP_EVT_SEC_REQUEST";
-        break;
-
-    case BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST:
-        eventName = "BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST";
-        break;
-
-    case BLE_GAP_EVT_SCAN_REQ_REPORT:
-        eventName = "BLE_GAP_EVT_SCAN_REQ_REPORT";
-        break;
-
-    case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
-        eventName = "BLE_GAP_EVT_PHY_UPDATE_REQUEST";
-        break;
-
-    case BLE_GAP_EVT_PHY_UPDATE:
-        eventName = "BLE_GAP_EVT_PHY_UPDATE";
-        break;
-
-    case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST:
-        eventName = "BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST";
-        break;
-
-    case BLE_GAP_EVT_DATA_LENGTH_UPDATE:
-        eventName = "BLE_GAP_EVT_DATA_LENGTH_UPDATE";
-        break;
-
-    case BLE_GAP_EVT_QOS_CHANNEL_SURVEY_REPORT:
-        eventName = "BLE_GAP_EVT_QOS_CHANNEL_SURVEY_REPORT";
-        break;
-
-    case BLE_GAP_EVT_ADV_SET_TERMINATED:
-        eventName = "BLE_GAP_EVT_ADV_SET_TERMINATED";
-        break;
-
-    case BLE_GATTS_EVT_WRITE:
-        eventName = "BLE_GATTS_EVT_WRITE";
-        break;
-
-    case BLE_GATTS_EVT_RW_AUTHORIZE_REQUEST:
-        eventName = "BLE_GATTS_EVT_RW_AUTHORIZE_REQUEST";
-        break;
-
-    case BLE_GATTS_EVT_SYS_ATTR_MISSING:
-        eventName = "BLE_GATTS_EVT_SYS_ATTR_MISSING";
-        break;
-
-    case BLE_GATTS_EVT_HVC:
-        eventName = "BLE_GATTS_EVT_HVC";
-        break;
-
-    case BLE_GATTS_EVT_SC_CONFIRM:
-        eventName = "BLE_GATTS_EVT_SC_CONFIRM";
-        break;
-
-    case BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST:
-        eventName = "BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST";
-        break;
-
     case BLE_GATTS_EVT_TIMEOUT:
         NRF_LOG_INFO("BLE GATT Server timeout (con %" PRIu16 ")", bleEvent->evt.gatts_evt.conn_handle);
         return;
 
-    case BLE_GATTS_EVT_HVN_TX_COMPLETE:
-        eventName = "BLE_GATTS_EVT_HVN_TX_COMPLETE";
-        break;
+    case BLE_EVT_USER_MEM_REQUEST                   : eventName = "BLE_EVT_USER_MEM_REQUEST"; break;
+    case BLE_EVT_USER_MEM_RELEASE                   : eventName = "BLE_EVT_USER_MEM_RELEASE"; break;
+
+    case BLE_GAP_EVT_SEC_INFO_REQUEST               : eventName = "BLE_GAP_EVT_SEC_INFO_REQUEST"; break;
+    case BLE_GAP_EVT_PASSKEY_DISPLAY                : eventName = "BLE_GAP_EVT_PASSKEY_DISPLAY"; break;
+    case BLE_GAP_EVT_KEY_PRESSED                    : eventName = "BLE_GAP_EVT_KEY_PRESSED"; break;
+    case BLE_GAP_EVT_CONN_PARAM_UPDATE              : eventName = "BLE_GAP_EVT_CONN_PARAM_UPDATE"; break;
+    case BLE_GAP_EVT_TIMEOUT                        : eventName = "BLE_GAP_EVT_TIMEOUT"; break;
+    case BLE_GAP_EVT_RSSI_CHANGED                   : eventName = "BLE_GAP_EVT_RSSI_CHANGED"; break;
+    case BLE_GAP_EVT_ADV_REPORT                     : eventName = "BLE_GAP_EVT_ADV_REPORT"; break;
+    case BLE_GAP_EVT_SEC_REQUEST                    : eventName = "BLE_GAP_EVT_SEC_REQUEST"; break;
+    case BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST      : eventName = "BLE_GAP_EVT_CONN_PARAM_UPDATE_REQUEST"; break;
+    case BLE_GAP_EVT_SCAN_REQ_REPORT                : eventName = "BLE_GAP_EVT_SCAN_REQ_REPORT"; break;
+    case BLE_GAP_EVT_PHY_UPDATE_REQUEST             : eventName = "BLE_GAP_EVT_PHY_UPDATE_REQUEST"; break;
+    case BLE_GAP_EVT_PHY_UPDATE                     : eventName = "BLE_GAP_EVT_PHY_UPDATE"; break;
+    case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST     : eventName = "BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST"; break;
+    case BLE_GAP_EVT_DATA_LENGTH_UPDATE             : eventName = "BLE_GAP_EVT_DATA_LENGTH_UPDATE"; break;
+    case BLE_GAP_EVT_QOS_CHANNEL_SURVEY_REPORT      : eventName = "BLE_GAP_EVT_QOS_CHANNEL_SURVEY_REPORT"; break;
+    case BLE_GAP_EVT_ADV_SET_TERMINATED             : eventName = "BLE_GAP_EVT_ADV_SET_TERMINATED"; break;
+
+    case BLE_GATTS_EVT_WRITE                        : eventName = "BLE_GATTS_EVT_WRITE"; break;
+    case BLE_GATTS_EVT_RW_AUTHORIZE_REQUEST         : eventName = "BLE_GATTS_EVT_RW_AUTHORIZE_REQUEST"; break;
+    case BLE_GATTS_EVT_SYS_ATTR_MISSING             : eventName = "BLE_GATTS_EVT_SYS_ATTR_MISSING"; break;
+    case BLE_GATTS_EVT_HVC                          : eventName = "BLE_GATTS_EVT_HVC"; break;
+    case BLE_GATTS_EVT_SC_CONFIRM                   : eventName = "BLE_GATTS_EVT_SC_CONFIRM"; break;
+    case BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST         : eventName = "BLE_GATTS_EVT_EXCHANGE_MTU_REQUEST"; break;
+    case BLE_GATTS_EVT_HVN_TX_COMPLETE              : eventName = "BLE_GATTS_EVT_HVN_TX_COMPLETE"; break;
+
+    case BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP           : eventName = "BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP"; break;
+    case BLE_GATTC_EVT_REL_DISC_RSP                 : eventName = "BLE_GATTC_EVT_REL_DISC_RSP"; break;
+    case BLE_GATTC_EVT_CHAR_DISC_RSP                : eventName = "BLE_GATTC_EVT_CHAR_DISC_RSP"; break;
+    case BLE_GATTC_EVT_DESC_DISC_RSP                : eventName = "BLE_GATTC_EVT_DESC_DISC_RSP"; break;
+    case BLE_GATTC_EVT_ATTR_INFO_DISC_RSP           : eventName = "BLE_GATTC_EVT_ATTR_INFO_DISC_RSP"; break;
+    case BLE_GATTC_EVT_CHAR_VAL_BY_UUID_READ_RSP    : eventName = "BLE_GATTC_EVT_CHAR_VAL_BY_UUID_READ_RSP"; break;
+    case BLE_GATTC_EVT_READ_RSP                     : eventName = "BLE_GATTC_EVT_READ_RSP"; break;
+    case BLE_GATTC_EVT_CHAR_VALS_READ_RSP           : eventName = "BLE_GATTC_EVT_CHAR_VALS_READ_RSP"; break;
+    case BLE_GATTC_EVT_WRITE_RSP                    : eventName = "BLE_GATTC_EVT_WRITE_RSP"; break;
+    case BLE_GATTC_EVT_HVX                          : eventName = "BLE_GATTC_EVT_HVX"; break;
+    case BLE_GATTC_EVT_EXCHANGE_MTU_RSP             : eventName = "BLE_GATTC_EVT_EXCHANGE_MTU_RSP"; break;
+    case BLE_GATTC_EVT_TIMEOUT                      : eventName = "BLE_GATTC_EVT_TIMEOUT"; break;
+    case BLE_GATTC_EVT_WRITE_CMD_TX_COMPLETE        : eventName = "BLE_GATTC_EVT_WRITE_CMD_TX_COMPLETE"; break;
+
+    case BLE_L2CAP_EVT_CH_SETUP_REQUEST             : eventName = "BLE_L2CAP_EVT_CH_SETUP_REQUEST"; break;
+    case BLE_L2CAP_EVT_CH_SETUP_REFUSED             : eventName = "BLE_L2CAP_EVT_CH_SETUP_REFUSED"; break;
+    case BLE_L2CAP_EVT_CH_SETUP                     : eventName = "BLE_L2CAP_EVT_CH_SETUP"; break;
+    case BLE_L2CAP_EVT_CH_RELEASED                  : eventName = "BLE_L2CAP_EVT_CH_RELEASED"; break;
+    case BLE_L2CAP_EVT_CH_SDU_BUF_RELEASED          : eventName = "BLE_L2CAP_EVT_CH_SDU_BUF_RELEASED"; break;
+    case BLE_L2CAP_EVT_CH_CREDIT                    : eventName = "BLE_L2CAP_EVT_CH_CREDIT"; break;
+    case BLE_L2CAP_EVT_CH_RX                        : eventName = "BLE_L2CAP_EVT_CH_RX"; break;
+    case BLE_L2CAP_EVT_CH_TX                        : eventName = "BLE_L2CAP_EVT_CH_TX"; break;
 
     default:
-        snprintf(eventNameBuf, sizeof(eventNameBuf), "BLE event %" PRIu16, bleEvent->header.evt_id);
+        snprintf(eventNameBuf, sizeof(eventNameBuf), "BLE event 0x%04" PRIX16, bleEvent->header.evt_id);
         eventName = eventNameBuf;
         break;
     }
@@ -273,5 +238,3 @@ void BLEEventLogger::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
 }
 
 } // namespace nrf5utils
-
-#endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT

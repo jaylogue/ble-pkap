@@ -24,7 +24,9 @@
 
 #include <sdk_common.h>
 
-#if defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
+#if !defined(SOFTDEVICE_PRESENT) || !SOFTDEVICE_PRESENT
+#error LEDButtonService requires SoftDevice to be enabled
+#endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
 
 #include <inttypes.h>
 
@@ -57,6 +59,7 @@ ble_gatts_char_handles_t sButtonCharHandles;
 
 } // unnamed namespace
 
+decltype(LEDButtonService::Event::OnLEDWrite) LEDButtonService::Event::OnLEDWrite;
 
 ret_code_t LEDButtonService::Init(void)
 {
@@ -131,6 +134,62 @@ exit:
     return res;
 }
 
+ret_code_t LEDButtonService::GetLEDState(bool & isOn)
+{
+    ret_code_t res;
+    ble_gatts_value_t charVal;
+    uint8_t valBuf;
+
+    charVal = {};
+    charVal.len = 1;
+    charVal.p_value = &valBuf;
+
+    res = sd_ble_gatts_value_get(BLE_CONN_HANDLE_INVALID, sLEDCharHandles.value_handle, &charVal);
+    NRF_LOG_CALL_FAIL_INFO("sd_ble_gatts_value_get", res);
+    SuccessOrExit(res);
+    VerifyOrExit(charVal.len == 1, res = NRF_ERROR_INVALID_LENGTH);
+
+    isOn = (valBuf != 0);
+
+exit:
+    return res;
+}
+
+void LEDButtonService::UpdateLEDState(bool isOn)
+{
+    ret_code_t res;
+    ble_gatts_value_t charVal;
+    uint8_t valBuf = isOn ? 1 : 0;
+
+    charVal = {};
+    charVal.len = 1;
+    charVal.p_value = &valBuf;
+
+    res = sd_ble_gatts_value_set(BLE_CONN_HANDLE_INVALID, sButtonCharHandles.value_handle, &charVal);
+    NRF_LOG_CALL_FAIL_INFO("sd_ble_gatts_value_set", res);
+}
+
+ret_code_t LEDButtonService::GetButtonState(bool & isPressed)
+{
+    ret_code_t res;
+    ble_gatts_value_t charVal;
+    uint8_t valBuf;
+
+    charVal = {};
+    charVal.len = 1;
+    charVal.p_value = &valBuf;
+
+    res = sd_ble_gatts_value_get(BLE_CONN_HANDLE_INVALID, sButtonCharHandles.value_handle, &charVal);
+    NRF_LOG_CALL_FAIL_INFO("sd_ble_gatts_value_get", res);
+    SuccessOrExit(res);
+    VerifyOrExit(charVal.len == 1, res = NRF_ERROR_INVALID_LENGTH);
+
+    isPressed = (valBuf != 0);
+
+exit:
+    return res;
+}
+
 void LEDButtonService::UpdateButtonState(bool isPressed)
 {
     // For each active connection, generate a notification for the Button characteristic
@@ -173,17 +232,13 @@ void LEDButtonService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
     {
     case BLE_GATTS_EVT_WRITE:
 
-        // If the LED state is being written, invoke the application's OnLEDWrite
-        // event handler (if defined).
+        // If the LED state is being written, raise an OnLEDWrite event.
         if (bleEvent->evt.gatts_evt.params.write.handle == sLEDCharHandles.value_handle &&
             bleEvent->evt.gatts_evt.params.write.len == 1)
         {
             bool setOn = (bleEvent->evt.gatts_evt.params.write.data[0] != 0);
             NRF_LOG_INFO("LED characteristic write: %s", setOn ? "ON" : "OFF");
-            if (Event::OnLEDWrite)
-            {
-                Event::OnLEDWrite(setOn);
-            }
+            Event::OnLEDWrite.RaiseEvent(setOn);
         }
 
         break;
@@ -194,5 +249,3 @@ void LEDButtonService::HandleBLEEvent(ble_evt_t const * bleEvent, void * context
 }
 
 } // namespace nrf5utils
-
-#endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT

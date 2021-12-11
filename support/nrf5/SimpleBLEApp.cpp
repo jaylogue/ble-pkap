@@ -23,7 +23,9 @@
 
 #include <sdk_common.h>
 
-#if defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
+#if !defined(SOFTDEVICE_PRESENT) || !SOFTDEVICE_PRESENT
+#error SimpleBLEApp requires SoftDevice to be enabled
+#endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -71,6 +73,13 @@ ble_gap_lesc_p256_pk_t sPeerLESCPubKey;
 #endif
 
 } // unnamed namespace
+
+decltype(SimpleBLEApp::Event::OnAdvertisingStarted)     SimpleBLEApp::Event::OnAdvertisingStarted;
+decltype(SimpleBLEApp::Event::OnAdvertisingStopped)     SimpleBLEApp::Event::OnAdvertisingStopped;
+decltype(SimpleBLEApp::Event::OnConnectionEstablished)  SimpleBLEApp::Event::OnConnectionEstablished;
+decltype(SimpleBLEApp::Event::OnConnectionTerminated)   SimpleBLEApp::Event::OnConnectionTerminated;
+decltype(SimpleBLEApp::Event::OnPairingRequested)       SimpleBLEApp::Event::OnPairingRequested;
+decltype(SimpleBLEApp::Event::OnPairingCompleted)       SimpleBLEApp::Event::OnPairingCompleted;
 
 ret_code_t SimpleBLEApp::Init(void)
 {
@@ -305,11 +314,8 @@ ret_code_t SimpleBLEApp::StartAdvertising(void)
 
     sAdvEnabled = true;
 
-    // Let the application know that advertising has started.
-    if (Event::OnAdvertisingStarted)
-    {
-        Event::OnAdvertisingStarted();
-    }
+    // Let observers know that advertising has started.
+    Event::OnAdvertisingStarted.RaiseEvent();
 
 exit:
     return res;
@@ -334,11 +340,8 @@ ret_code_t SimpleBLEApp::StopAdvertising(void)
         NRF_LOG_CALL_FAIL_INFO("sd_ble_gap_adv_stop", res);
         SuccessOrExit(res);
 
-        // Let the application know that advertising has stopped.
-        if (Event::OnAdvertisingStopped)
-        {
-            Event::OnAdvertisingStopped();
-        }
+        // Let observers know that advertising has stopped.
+        Event::OnAdvertisingStopped.RaiseEvent();
     }
 
 exit:
@@ -376,11 +379,8 @@ void SimpleBLEApp::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
     {
     case BLE_GAP_EVT_CONNECTED:
 
-        // Invoke the application's event handler, if defined.
-        if (Event::OnConnectionEstablished)
-        {
-            Event::OnConnectionEstablished(conHandle, &bleEvent->evt.gap_evt.params.connected);
-        }
+        // Let observers know that a new connection has been established.
+        Event::OnConnectionEstablished.RaiseEvent(conHandle, &bleEvent->evt.gap_evt.params.connected);
 
         // Re-start advertising if more than one peripheral connection allowed and not at the maximum
         // number of peripheral connections.
@@ -399,11 +399,8 @@ void SimpleBLEApp::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
         LogHeapStats();
 #endif
 
-        // Invoke the application's event handler, if defined.
-        if (Event::OnConnectionTerminated)
-        {
-            Event::OnConnectionTerminated(conHandle, &bleEvent->evt.gap_evt.params.disconnected);
-        }
+        // Let observers know that a connection has terminated.
+        Event::OnConnectionTerminated.RaiseEvent(conHandle, &bleEvent->evt.gap_evt.params.disconnected);
 
         // Re-start advertising if not at the maximum number of peripheral connections.
         if (sAdvEnabled && ble_conn_state_peripheral_conn_count() < NRF_SDH_BLE_PERIPHERAL_LINK_COUNT)
@@ -463,11 +460,8 @@ void SimpleBLEApp::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
 
 #endif // SIMPLE_BLE_APP_LESC_PAIRING
 
-        // Invoke the application's event handler, if defined.
-        if (Event::OnPairingRequested)
-        {
-            Event::OnPairingRequested(conHandle, secParamsReq, secStatus, &secParamsReply);
-        }
+        // Let observers know that pairing has been requested.
+        Event::OnPairingRequested.RaiseEvent(conHandle, secParamsReq, secStatus, &secParamsReply);
 
 #if NRF_LOG_ENABLED && NRF_LOG_LEVEL >= NRF_LOG_SEVERITY_INFO
         if (secStatus == BLE_GAP_SEC_STATUS_SUCCESS)
@@ -511,11 +505,8 @@ void SimpleBLEApp::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
 
 #endif // NRF_LOG_ENABLED && NRF_LOG_LEVEL >= NRF_LOG_SEVERITY_INFO
 
-        // Invoke the application's event handler, if defined.
-        if (Event::OnPairingCompleted)
-        {
-            Event::OnPairingCompleted(conHandle, authStatus);
-        }
+        // Let observers know that pairing has completed.
+        Event::OnPairingCompleted.RaiseEvent(conHandle, authStatus);
 
         break;
     }
@@ -537,6 +528,4 @@ void SimpleBLEApp::HandleBLEEvent(ble_evt_t const * bleEvent, void * context)
 }
 
 } // namespace nrf5utils
-
-#endif // defined(SOFTDEVICE_PRESENT) && SOFTDEVICE_PRESENT
 

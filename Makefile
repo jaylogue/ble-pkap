@@ -43,6 +43,8 @@ SRCS = \
     $(PROJECT_ROOT)/support/general/AltPrintf.c \
     $(PROJECT_ROOT)/support/nrf5/AltNRFPrintf.c \
     $(PROJECT_ROOT)/support/general/JLinkMMDStubs.c \
+    $(PROJECT_ROOT)/support/nrf5/nRF5Assert.c \
+    $(PROJECT_ROOT)/support/general/SimpleEventObserver.cpp \
     $(PROJECT_ROOT)/external/printf/printf.c \
     $(NRF5_SDK_ROOT)/components/ble/common/ble_advdata.c \
     $(NRF5_SDK_ROOT)/components/ble/common/ble_conn_state.c \

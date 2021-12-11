@@ -25,6 +25,8 @@
 #ifndef LEDBUTTONSERVICE_H_
 #define LEDBUTTONSERVICE_H_
 
+#include <SimpleEventObserver.h>
+
 namespace nrf5utils {
 
 /** Implements the core logic for the Nordic LED-Button BLE service.
@@ -33,17 +35,24 @@ class LEDButtonService final
 {
 public:
     static ret_code_t Init(void);
+    static void GetServiceUUID(ble_uuid_t & serviceUUID);
+    static ret_code_t GetLEDState(bool & isOn);
+    static void UpdateLEDState(bool isOn);
+    static ret_code_t GetButtonState(bool & isPressed);
     static void UpdateButtonState(bool isPressed);
     static void ButtonEventHandler(uint8_t buttonPin, uint8_t buttonAction);
-    static void GetServiceUUID(ble_uuid_t & serviceUUID);
 
     struct Event final
     {
-        static void OnLEDWrite(bool setOn) __WEAK;
+        // handler signature: void OnLEDWrite(bool setOn)
+        static SimpleEventObserver::Event<bool> OnLEDWrite;
     };
 
 private:
     static void HandleBLEEvent(ble_evt_t const * bleEvent, void * context);
+
+    LEDButtonService() = delete;
+    ~LEDButtonService() = delete;
 };
 
 
